@@ -2,7 +2,7 @@
 // @name            Odoo Fast Product Search
 // @name:tr         Odoo Hızlı Ürün Arama
 // @namespace       https://github.com/sipsak
-// @version         1.0
+// @version         1.1
 // @description     Adds a search box to quickly look up a desired product in Odoo and navigate directly to its product form page.
 // @description:tr  Odoo'ya istenilen ürünü hızlıca arayıp ürün kartının içine gidebilmek için bir arama kutusu ekler.
 // @author          Burak Şipşak
@@ -11,6 +11,10 @@
 // @grant           GM_registerMenuCommand
 // @grant           GM_setValue
 // @grant           GM_getValue
+// @grant           GM_addStyle
+// @grant           GM_getResourceText
+// @resource        VIEWER_CSS https://cdnjs.cloudflare.com/ajax/libs/viewerjs/1.11.6/viewer.min.css
+// @require         https://cdnjs.cloudflare.com/ajax/libs/viewerjs/1.11.6/viewer.min.js
 // @icon            data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIHZpZXdCb3g9IjAgMCA1MCA1MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNNDQuNTIxIDUuNWE0LjQ3NyA0LjQ3NyAwIDAgMSAwIDYuMzMybC0zNC4xOSAzNC4xOUg0VjM5LjY5TDM4LjE5IDUuNWE0LjQ3NyA0LjQ3NyAwIDAgMSA2LjMzMSAwWiIgZmlsbD0iIzJFQkNGQSIvPjxwYXRoIGQ9Ik0xMC45IDE1LjEyMiA0Ljg5OCA5LjEyYTkuMDA0IDkuMDA0IDAgMCAwIDEwLjQ4IDEyLjU2OGwyMy4wMDEgMjNhNC40NzcgNC40NzcgMCAwIDAgNi4zMzEtNi4zM2wtMjMtMjMuMDAxQTkuMDA0IDkuMDA0IDAgMCAwIDkuMTQxIDQuODc3bDYuMDAyIDYuMDAyLTQuMjQzIDQuMjQzWiIgZmlsbD0iIzk4NTE4NCIvPjxwYXRoIGQ9Ik0yNS4wMjMgMTguNjcgMTguNjkgMjVsNi4zMzIgNi4zMzFMMzEuMzUyIDI1bC02LjMzLTYuMzMxWiIgZmlsbD0iIzE0NDQ5NiIvPjwvc3ZnPgo=
 // @updateURL       https://raw.githubusercontent.com/sipsak/Odoo-Fast-Product-Search/main/Odoo-Fast-Product-Search.user.js
 // @downloadURL     https://raw.githubusercontent.com/sipsak/Odoo-Fast-Product-Search/main/Odoo-Fast-Product-Search.user.js
@@ -283,23 +287,7 @@
     }
 
 
-    function loadViewerJS() {
-        return new Promise((resolve, reject) => {
-            if (window.Viewer) {
-                resolve();
-                return;
-            }
-            const link = document.createElement('link');
-            link.rel = 'stylesheet';
-            link.href = 'https://cdnjs.cloudflare.com/ajax/libs/viewerjs/1.11.6/viewer.min.css';
-            document.head.appendChild(link);
-            const script = document.createElement('script');
-            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/viewerjs/1.11.6/viewer.min.js';
-            script.onload = resolve;
-            script.onerror = reject;
-            document.head.appendChild(script);
-        });
-    }
+    
 
     function debounce(func, wait) {
         let timeout;
@@ -331,6 +319,13 @@
         styleSheet.innerText = customCSS;
         document.head.appendChild(styleSheet);
 
+        try {
+            const viewerCSS = GM_getResourceText('VIEWER_CSS');
+            GM_addStyle(viewerCSS);
+        } catch (e) {
+            console.error("Viewer.js CSS yüklenemedi:", e);
+        }
+
         const messagesButtonContainer = navbar.querySelector('.o-mail-DiscussSystray-class');
         if (messagesButtonContainer) {
             messagesButtonContainer.insertAdjacentHTML('beforebegin', searchButtonHTML);
@@ -345,12 +340,7 @@
         searchFieldContainer = document.getElementById('product-search-field');
         searchInput = document.getElementById('product-search-input');
 
-        updatePlaceholder(); // Çağrıyı buraya taşıdık
-
-        try {
-            await loadViewerJS();
-        } catch (e) {
-        }
+        updatePlaceholder();
         setupEvents();
     }
 
@@ -449,7 +439,7 @@
             const suggestionLink = e.target.closest('.suggestion-item');
             if (!suggestionLink) return;
 
-            if (e.target.tagName === 'IMG') {
+                if (e.target.tagName === 'IMG') {
                 e.preventDefault();
                 const productId = suggestionLink.dataset.id;
                 showImageViewer(productId);
@@ -519,6 +509,10 @@
         return `${ODOO_CONFIG.url}/web#id=${productId}&cids=1&menu_id=326&action=501&model=product.template&view_type=form`;
     }
 
+    function getProductImageUrl(productId, field = 'image_128') {
+        return `${ODOO_CONFIG.url}/web/image?model=product.template&id=${productId}&field=${field}`;
+    }
+
     function getImageDataUrl(imageData) {
         if (!imageData) return 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHZpZXdCb3g9IjAgMCA0MCA0MCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjQwIiBoZWlnaHQ9IjQwIiBmaWxsPSIjRjVGNUY1Ii8+CjxwYXRoIGQ9Ik0xMiAxNkgyOFYyNEgxMlYxNloiIGZpbGw9IiNEREREREQiLz4KPHBhdGggZD0iTTE0IDE4SDE4VjIySDE0VjE4WiIgZmlsbD0iI0JCQkJCQiIvPgo8L3N2Zz4K';
         if (imageData.startsWith('data:')) return imageData;
@@ -542,10 +536,18 @@
     async function showImageViewer(productId) {
         showViewerLoader();
         try {
-            if (!ODOO_CONFIG.db || !window.Viewer || !ODOO_CONFIG.api_key) {
+            if (!window.Viewer) {
+                console.error("Viewer.js kütüphanesi yüklenmemiş veya bulunamadı. (@require çalışmamış olabilir)");
+                hideViewerLoader();
+                return; // Yüklenemezse devam etme
+            }
+            if (!ODOO_CONFIG.db || !ODOO_CONFIG.api_key) {
+                console.error("API anahtarı veya DB bilgisi eksik.");
+                setStatus(getTranslation('apiNotSet'), true);
                 hideViewerLoader();
                 return;
             }
+
             const response = await fetch(`${ODOO_CONFIG.url}/jsonrpc`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -560,6 +562,7 @@
             });
             const data = await response.json();
             if (data.error || !data.result?.length) {
+                console.error("Resim verisi alınamadı:", data.error || "Sonuç bulunamadı");
                 hideViewerLoader();
                 return;
             }
@@ -567,9 +570,11 @@
             const imageData = product.image_1920;
             if (imageData) {
                 const viewerContainer = document.createElement('div');
+                viewerContainer.style.display = 'none';
                 const img = document.createElement('img');
                 img.src = getImageDataUrl(imageData);
                 viewerContainer.appendChild(img);
+                document.body.appendChild(viewerContainer);
 
                 if (viewer) viewer.destroy();
 
@@ -579,6 +584,7 @@
                     },
                     hidden: () => {
                         viewer.destroy();
+                        viewerContainer.remove();
                     },
                     navbar: false, title: false,
                     toolbar: { zoomIn: 1, zoomOut: 1, oneToOne: 1, reset: 1, prev: 0, play: 0, next: 0, rotateLeft: 1, rotateRight: 1, flipHorizontal: 1, flipVertical: 1 }
@@ -588,6 +594,7 @@
                 hideViewerLoader();
             }
         } catch (e) {
+            console.error("Resim görüntüleyici hatası:", e);
             hideViewerLoader();
         }
     }
@@ -769,7 +776,7 @@
             const barcode = p.barcode || '';
             const name = p.name || '';
             const defaultCode = p.default_code || '';
-            const img = getImageDataUrl(p.image_128);
+            const img = getProductImageUrl(p.id, 'image_128');
             const url = getProductUrl(p.id);
 
             const highlightedBarcode = highlightWildcardSearch(barcode, query);
@@ -857,7 +864,7 @@
             return;
         }
 
-        // updatePlaceholder(); // Bu satırı buradan kaldırıyoruz
+	    
 
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', addSearchToNavbar);
@@ -868,4 +875,3 @@
 
     init();
 })();
-
