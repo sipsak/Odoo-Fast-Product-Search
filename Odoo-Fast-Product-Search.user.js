@@ -2,7 +2,7 @@
 // @name            Odoo Fast Product Search
 // @name:tr         Odoo Hızlı Ürün Arama
 // @namespace       https://github.com/sipsak
-// @version         1.1
+// @version         1.2
 // @description     Adds a search box to quickly look up a desired product in Odoo and navigate directly to its product form page.
 // @description:tr  Odoo'ya istenilen ürünü hızlıca arayıp ürün kartının içine gidebilmek için bir arama kutusu ekler.
 // @author          Burak Şipşak
@@ -105,17 +105,17 @@
 
     const searchFieldHTML = `
         <div id="product-search-field" class="align-items-center">
-            <div class="o_searchview form-control d-flex align-items-center w-100 py-1 px-2">
-                <i class="o_searchview_icon fa fa-search text-muted me-2" role="img"></i>
-                <div class="o_searchview_input_container d-flex flex-grow-1">
-                    <input type="text" id="product-search-input" class="o_searchview_input o_input flex-grow-1 border-0 bg-transparent p-0" placeholder="" autocomplete="off">
+            <div class="o_cp_searchview d-flex input-group" role="search">
+                <div class="o_searchview form-control d-print-contents d-flex align-items-center py-1" role="search" aria-autocomplete="list" aria-expanded="false">
+                    <i class="o_searchview_icon oi oi-search me-2" role="img"></i>
+                    <div class="o_searchview_input_container d-flex flex-grow-1 flex-wrap gap-1 mw-100">
+                        <input type="text" id="product-search-input" class="o_searchview_input o_input d-print-none flex-grow-1 w-auto border-0 focus" role="searchbox" aria-selected="true" autocomplete="off" placeholder="">
+                    </div>
                 </div>
-                <button type="button" id="product-search-clear-btn" class="btn o_searchview_clear d-none" title="Temizle" aria-label="Temizle">
-                    <i class="fa fa-times" aria-hidden="true"></i>
-                </button>
+                
             </div>
-            <div id="search-suggestions"></div>
-            <div id="search-status"></div>
+            <div id="search-suggestions" class="dropdown-menu o-dropdown--menu show"></div>
+            <div id="search-status" class="dropdown-menu o-dropdown--menu show"></div>
         </div>
     `;
 
@@ -136,19 +136,20 @@
             transform: scaleX(1);
             opacity: 1;
         }
+        
+        #product-search-field .o_cp_searchview {
+            width: 100%;
+        }
         #search-suggestions {
             position: absolute;
             top: calc(100% + 4px);
             left: 0;
             right: 0;
-            background: white;
-            border: 1px solid #ddd;
             border-radius: 4px;
             max-height: 550px;
             overflow-y: auto;
             z-index: 99999;
             display: none;
-            box-shadow: 0 2px 4px rgba(0,0,0,.1);
         }
         #search-status {
             position: absolute;
@@ -157,10 +158,7 @@
             right: 0;
             padding: 6px 8px;
             font-size: 12px;
-            color: #666;
             text-align: center;
-            background: white;
-            border: 1px solid #eee;
             border-radius: 4px;
             display: none;
             z-index: 99998;
@@ -187,7 +185,6 @@
             padding: 8px;
             text-align: center;
             font-size: 12px;
-            color: #888;
         }
         #viewer-loader-overlay {
             position: fixed;
@@ -210,18 +207,6 @@
             border-radius: 50%;
             animation: spin 1s linear infinite;
         }
-        .o_searchview_clear {
-            color: #6c757d;
-            background-color: transparent;
-            border: 0;
-            padding: 0 0.5rem;
-            font-size: 0.8rem;
-            line-height: 1;
-            cursor: pointer;
-        }
-        .o_searchview_clear:hover {
-            color: #212529;
-        }
         .userscript-modal-backdrop {
             position: fixed;
             top: 0;
@@ -232,6 +217,7 @@
             z-index: 1049;
             display: block;
         }
+        
     `;
 
     function promptForApiKey() {
@@ -287,7 +273,7 @@
     }
 
 
-    
+
 
     function debounce(func, wait) {
         let timeout;
@@ -342,11 +328,31 @@
 
         updatePlaceholder();
         setupEvents();
+        startObserving();
+    }
+
+    function startObserving() {
+        const observer = new MutationObserver((mutations) => {
+            const searchButton = document.getElementById('product-search-button');
+            if (!searchButton) {
+                setTimeout(() => {
+                    if (!document.getElementById('product-search-button')) {
+                        addSearchToNavbar();
+                    }
+                }, 100);
+            }
+        });
+
+        const targetNode = document.querySelector('.o_menu_systray') || document.body;
+        observer.observe(targetNode, {
+            childList: true,
+            subtree: true
+        });
     }
 
     function setupEvents() {
         const suggestionsDiv = document.getElementById('search-suggestions');
-        const clearBtn = document.getElementById('product-search-clear-btn');
+        
 
         searchFieldContainer.addEventListener('transitionend', () => {
             if (!searchFieldContainer.classList.contains('visible')) {
@@ -386,22 +392,28 @@
             lastSearchTerm = query;
             enterPressState = { pressed: false, ctrlKey: false };
 
+            
             if (query.length > 0) {
-                clearBtn.classList.remove('d-none');
+                addClearButton();
             } else {
-                clearBtn.classList.add('d-none');
+                removeClearButton();
             }
 
             debouncedSearch(query);
         });
 
-        clearBtn.addEventListener('click', () => {
+        
+        searchFieldContainer.addEventListener('click', (e) => {
+            const clearBtn = e.target.closest('#product-search-clear-btn');
+            if (!clearBtn) return; 
+
+            e.preventDefault();
             searchInput.value = '';
             lastSearchTerm = '';
             lastSuggestionsCache = { term: '', results: [] };
             hideSuggestions();
             setStatus(null);
-            clearBtn.classList.add('d-none');
+            removeClearButton(); 
             searchInput.focus();
         });
 
@@ -464,7 +476,12 @@
     }
 
     function openSearchField() {
-        searchButtonContainer.style.display = 'none';
+        
+        
+        
+        searchButtonContainer.style.display = 'none'; 
+        
+
         searchFieldContainer.style.display = 'flex';
         setTimeout(() => searchFieldContainer.classList.add('visible'), 10);
         updatePlaceholder();
@@ -473,11 +490,11 @@
         searchInput.select();
         setStatus(null);
 
-        const clearBtn = document.getElementById('product-search-clear-btn');
+        
         if (lastSearchTerm.length > 0) {
-            clearBtn.classList.remove('d-none');
+            addClearButton();
         } else {
-            clearBtn.classList.add('d-none');
+            removeClearButton(); 
         }
 
         if (lastSearchTerm.length >= 2 && lastSuggestionsCache.term === lastSearchTerm && lastSuggestionsCache.results.length > 0) {
@@ -489,15 +506,46 @@
 
     function updatePlaceholder() {
         searchInput.placeholder = getTranslation('placeholder');
-        document.getElementById('product-search-clear-btn').title = getTranslation('clear');
-        document.getElementById('product-search-clear-btn').setAttribute('aria-label', getTranslation('clear'));
+        
     }
 
     function hideSearchField() {
         searchFieldContainer.classList.remove('visible');
-        searchButtonContainer.style.display = '';
+
+        
+        
+        
+        
+        searchButtonContainer.style.display = ''; 
+        
+
         hideSuggestions();
         setStatus(null);
+    }
+
+    
+    function addClearButton() {
+        if (document.getElementById('product-search-clear-wrapper')) return; 
+
+        const searchView = searchFieldContainer.querySelector('.o_cp_searchview');
+        if (searchView) {
+            
+            const buttonHTML = `
+                <div class="o-dropdown dropdown o-dropdown--no-caret" id="product-search-clear-wrapper">
+                    <button id="product-search-clear-btn" class="o_searchview_dropdown_toggler d-print-none btn btn-outline-secondary rounded-start-0" title="${getTranslation('clear')}" aria-label="${getTranslation('clear')}">
+                        <i class="fa fa-times" aria-hidden="true"></i>
+                    </button>
+                </div>
+            `;
+            searchView.insertAdjacentHTML('beforeend', buttonHTML);
+        }
+    }
+
+    function removeClearButton() {
+        const wrapper = document.getElementById('product-search-clear-wrapper');
+        if (wrapper) {
+            wrapper.remove();
+        }
     }
 
     function clearLastSearchTerm() {
@@ -539,7 +587,7 @@
             if (!window.Viewer) {
                 console.error("Viewer.js kütüphanesi yüklenmemiş veya bulunamadı. (@require çalışmamış olabilir)");
                 hideViewerLoader();
-                return; // Yüklenemezse devam etme
+                return; 
             }
             if (!ODOO_CONFIG.db || !ODOO_CONFIG.api_key) {
                 console.error("API anahtarı veya DB bilgisi eksik.");
@@ -606,7 +654,6 @@
             return;
         }
         statusDiv.textContent = message;
-        statusDiv.style.color = isError ? '#d32f2f' : '#666';
         statusDiv.style.display = 'block';
     }
 
@@ -629,12 +676,12 @@
             if (item.classList.contains('selected')) {
                 currentIndex = idx;
                 item.classList.remove('selected');
-                item.style.backgroundColor = '';
+                item.classList.remove('focus');
             }
         });
         const newIndex = direction === 1 ? (currentIndex + 1) % items.length : (currentIndex - 1 + items.length) % items.length;
         items[newIndex].classList.add('selected');
-        items[newIndex].style.backgroundColor = '#f0f0f0';
+        items[newIndex].classList.add('focus');
         items[newIndex].scrollIntoView({ block: 'nearest' });
     }
 
@@ -768,7 +815,7 @@
         if (parts.length === 0) return text;
 
         const regex = new RegExp(`(${parts.map(escapeRegex).join('|')})`, 'gi');
-        return text.replace(regex, '<strong style="color: rgb(113, 75, 103);">$1</strong>');
+        return text.replace(regex, '<strong class="text-primary">$1</strong>');
     }
 
     function buildSuggestionHTML(products, query) {
@@ -785,20 +832,16 @@
 
             const secondLine = defaultCode ? `[${highlightedDefaultCode}] ${highlightedName}` : highlightedName;
             return `
-                <a href="${url}" class="suggestion-item" data-id="${p.id}" style="
+                <a href="${url}" class="suggestion-item dropdown-item" data-id="${p.id}" style="
                     display: flex; align-items: center; gap: 10px;
-                    padding: 8px 10px;
                     cursor: pointer;
-                    border-bottom: 1px solid #eee;
-                    background-color: white;
                     color: inherit;
                     text-decoration: none;
-                " onmouseover="this.style.backgroundColor='#f0f0f0'; this.classList.remove('selected');"
-                   onmouseout="if(!this.classList.contains('selected')) this.style.backgroundColor='white';">
-                    <img src="${img}" style="width: 36px; height: 36px; object-fit: cover; border-radius: 4px; border: 1px solid #ddd; cursor: zoom-in;" title="Büyük resim için tıklayın">
+                ">
+                    <img src="${img}" style="width: 36px; height: 36px; object-fit: cover; border-radius: 4px; cursor: zoom-in;" title="Büyük resim için tıklayın">
                     <div style="flex:1; min-width:0;">
-                        <div style="font-weight:600; color:#333; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${highlightedBarcode}</div>
-                        <div style="font-size:11px; color:#666; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${secondLine}</div>
+                        <div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${highlightedBarcode}</div>
+                        <div style="font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${secondLine}</div>
                     </div>
                 </a>
             `;
@@ -864,7 +907,7 @@
             return;
         }
 
-	    
+
 
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', addSearchToNavbar);
