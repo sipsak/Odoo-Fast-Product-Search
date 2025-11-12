@@ -2,7 +2,7 @@
 // @name            Odoo Fast Product Search
 // @name:tr         Odoo Hızlı Ürün Arama
 // @namespace       https://github.com/sipsak
-// @version         1.2
+// @version         1.3
 // @description     Adds a search box to quickly look up a desired product in Odoo and navigate directly to its product form page.
 // @description:tr  Odoo'ya istenilen ürünü hızlıca arayıp ürün kartının içine gidebilmek için bir arama kutusu ekler.
 // @author          Burak Şipşak
@@ -13,8 +13,8 @@
 // @grant           GM_getValue
 // @grant           GM_addStyle
 // @grant           GM_getResourceText
-// @resource        VIEWER_CSS https://cdnjs.cloudflare.com/ajax/libs/viewerjs/1.11.6/viewer.min.css
-// @require         https://cdnjs.cloudflare.com/ajax/libs/viewerjs/1.11.6/viewer.min.js
+// @resource        VIEWER_CSS https://raw.githubusercontent.com/fengyuanchen/viewerjs/main/dist/viewer.min.css
+// @require         https://raw.githubusercontent.com/fengyuanchen/viewerjs/main/dist/viewer.min.js
 // @icon            data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIHZpZXdCb3g9IjAgMCA1MCA1MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNNDQuNTIxIDUuNWE0LjQ3NyA0LjQ3NyAwIDAgMSAwIDYuMzMybC0zNC4xOSAzNC4xOUg0VjM5LjY5TDM4LjE5IDUuNWE0LjQ3NyA0LjQ3NyAwIDAgMSA2LjMzMSAwWiIgZmlsbD0iIzJFQkNGQSIvPjxwYXRoIGQ9Ik0xMC45IDE1LjEyMiA0Ljg5OCA5LjEyYTkuMDA0IDkuMDA0IDAgMCAwIDEwLjQ4IDEyLjU2OGwyMy4wMDEgMjNhNC40NzcgNC40NzcgMCAwIDAgNi4zMzEtNi4zM2wtMjMtMjMuMDAxQTkuMDA0IDkuMDA0IDAgMCAwIDkuMTQxIDQuODc3bDYuMDAyIDYuMDAyLTQuMjQzIDQuMjQzWiIgZmlsbD0iIzk4NTE4NCIvPjxwYXRoIGQ9Ik0yNS4wMjMgMTguNjcgMTguNjkgMjVsNi4zMzIgNi4zMzFMMzEuMzUyIDI1bC02LjMzLTYuMzMxWiIgZmlsbD0iIzE0NDQ5NiIvPjwvc3ZnPgo=
 // @updateURL       https://raw.githubusercontent.com/sipsak/Odoo-Fast-Product-Search/main/Odoo-Fast-Product-Search.user.js
 // @downloadURL     https://raw.githubusercontent.com/sipsak/Odoo-Fast-Product-Search/main/Odoo-Fast-Product-Search.user.js
@@ -30,7 +30,8 @@
         api_key: null,
         uid: null,
         lang: null,
-        context: {}
+        context: {},
+        server_version_info: null
     };
 
     let isSearching = false;
@@ -60,9 +61,8 @@
             dbError: 'Veritabanı bilgileri tespit edilemedi.',
             apiError: 'API Hatası: {message}',
             searchError: 'Arama sırasında hata oluştu',
-            loadingMore: 'Daha fazla sonuç yükleniyor...',
             clear: 'Temizle',
-            apiNotSet: 'API Anahtarı ayarlanmamış. Lütfen script menüsünden ayarlayın.',
+            apiNotSet: 'API Anahtarı ayarlanmamış. Lütfen eklenti menüsünden ayarlayın.',
             apiTitle: 'API',
             apiLabel: "Odoo'dan oluşturduğunuz API anahtarını girin:",
             apiButton: 'Tamam'
@@ -76,7 +76,6 @@
             dbError: 'Database information could not be detected.',
             apiError: 'API Error: {message}',
             searchError: 'Error occurred during search',
-            loadingMore: 'Loading more results...',
             clear: 'Clear',
             apiNotSet: 'API Key is not set. Please set it from the script menu.',
             apiTitle: 'API',
@@ -95,9 +94,21 @@
         return text;
     }
 
+    function getOdooMajorVersion() {
+        if (!ODOO_CONFIG.server_version_info || ODOO_CONFIG.server_version_info.length === 0) {
+            return 17;
+        }
+        const versionString = String(ODOO_CONFIG.server_version_info[0]);
+        const match = versionString.match(/\d+/);
+        if (match) {
+            return parseInt(match[0], 10);
+        }
+        return 17;
+    }
+
     const searchButtonHTML = `
-        <div class="o-dropdown dropdown o-dropdown--no-caret" id="product-search-button">
-            <button type="button" class="dropdown-toggle" tabindex="0" aria-expanded="false" title="Ürün Ara">
+        <div id="product-search-button">
+            <button type="button" class="o_nav_entry" tabindex="0" aria-expanded="false" title="Ürün Ara">
                 <i class="fa fa-search" role="img" aria-label="Ürün Ara"></i>
             </button>
         </div>
@@ -112,7 +123,7 @@
                         <input type="text" id="product-search-input" class="o_searchview_input o_input d-print-none flex-grow-1 w-auto border-0 focus" role="searchbox" aria-selected="true" autocomplete="off" placeholder="">
                     </div>
                 </div>
-                
+
             </div>
             <div id="search-suggestions" class="dropdown-menu o-dropdown--menu show"></div>
             <div id="search-status" class="dropdown-menu o-dropdown--menu show"></div>
@@ -136,7 +147,7 @@
             transform: scaleX(1);
             opacity: 1;
         }
-        
+
         #product-search-field .o_cp_searchview {
             width: 100%;
         }
@@ -164,28 +175,89 @@
             z-index: 99998;
         }
         .search-loader {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            padding: 16px;
-        }
-        .search-loader::after {
-            content: '';
+            display: block;
             width: 24px;
             height: 24px;
-            border: 3px solid #f0f0f0;
-            border-top-color: #007bff;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-        }
-        @keyframes spin {
-            to { transform: rotate(360deg); }
+            margin: 16px auto;
+            -webkit-mask-image: url('/web/static/img/spin.svg');
+            mask-image: url('/web/static/img/spin.svg');
+            -webkit-mask-size: contain;
+            mask-size: contain;
+            -webkit-mask-repeat: no-repeat;
+            mask-repeat: no-repeat;
+            -webkit-mask-position: center;
+            mask-position: center;
+            background-color: currentColor;
         }
         .lazy-load-indicator {
             padding: 8px;
-            text-align: center;
-            font-size: 12px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 36px;
         }
+
+        .lds-ellipsis,
+        .lds-ellipsis div {
+          box-sizing: border-box;
+        }
+        .lds-ellipsis {
+          display: inline-block;
+          position: relative;
+          width: 80px;
+          height: 80px;
+          transform: scale(0.3);
+        }
+        .lds-ellipsis div {
+          position: absolute;
+          top: 33.33333px;
+          width: 13.33333px;
+          height: 13.33333px;
+          border-radius: 50%;
+          background: currentColor;
+          animation-timing-function: cubic-bezier(0, 1, 1, 0);
+        }
+        .lds-ellipsis div:nth-child(1) {
+          left: 8px;
+          animation: lds-ellipsis1 0.6s infinite;
+        }
+        .lds-ellipsis div:nth-child(2) {
+          left: 8px;
+          animation: lds-ellipsis2 0.6s infinite;
+        }
+        .lds-ellipsis div:nth-child(3) {
+          left: 32px;
+          animation: lds-ellipsis2 0.6s infinite;
+        }
+        .lds-ellipsis div:nth-child(4) {
+          left: 56px;
+          animation: lds-ellipsis3 0.6s infinite;
+        }
+        @keyframes lds-ellipsis1 {
+          0% {
+            transform: scale(0);
+          }
+          100% {
+            transform: scale(1);
+          }
+        }
+        @keyframes lds-ellipsis3 {
+          0% {
+            transform: scale(1);
+          }
+          100% {
+            transform: scale(0);
+          }
+        }
+        @keyframes lds-ellipsis2 {
+          0% {
+            transform: translate(0, 0);
+          }
+          100% {
+            transform: translate(24px, 0);
+          }
+        }
+
         #viewer-loader-overlay {
             position: fixed;
             top: 0;
@@ -207,24 +279,11 @@
             border-radius: 50%;
             animation: spin 1s linear infinite;
         }
-        .userscript-modal-backdrop {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100vw;
-            height: 100vh;
-            background: rgba(0,0,0,0.5);
-            z-index: 1049;
-            display: block;
-        }
-        
+
     `;
 
     function promptForApiKey() {
         if (document.getElementById('userscript-api-modal')) return;
-
-        const backdrop = document.createElement('div');
-        backdrop.className = 'userscript-modal-backdrop';
 
         const modal = document.createElement('div');
         modal.id = 'userscript-api-modal';
@@ -252,46 +311,54 @@
             </div>
         `;
 
-        document.body.appendChild(backdrop);
         document.body.appendChild(modal);
 
         const closeModal = () => {
-            backdrop.remove();
             modal.remove();
         };
 
         modal.querySelector('.btn-close').addEventListener('click', closeModal);
-        backdrop.addEventListener('click', closeModal);
         modal.querySelector('#userscript-api-save-btn').addEventListener('click', async () => {
             const inputVal = modal.querySelector('#userscript-api-key-input').value.trim();
             if (inputVal) {
                 await GM_setValue('odoo_api_key', inputVal);
                 ODOO_CONFIG.api_key = inputVal;
+            } else {
+                await GM_setValue('odoo_api_key', null);
+                ODOO_CONFIG.api_key = null;
             }
             closeModal();
         });
     }
 
-
-
-
     function debounce(func, wait) {
         let timeout;
-        return function executedFunction(...args) {
+        const executedFunction = function(...args) {
             clearTimeout(timeout);
             timeout = setTimeout(() => func(...args), wait);
         };
+
+        executedFunction.cancel = function() {
+            clearTimeout(timeout);
+        };
+
+        return executedFunction;
     }
 
     const debouncedSearch = debounce(async (query) => {
         if (query.length < 2) {
+            if (currentSearchAbortController) {
+                currentSearchAbortController.abort();
+                currentSearchAbortController = null;
+            }
+            isSearching = false;
             hideSuggestions();
             lastSuggestionsCache = { term: query, results: [] };
             enterPressState = { pressed: false, ctrlKey: false };
             return;
         }
         await searchSuggestions(query, true);
-    }, 300);
+    }, 100);
 
     async function addSearchToNavbar() {
         const navbar = document.querySelector('.o_menu_systray');
@@ -329,6 +396,7 @@
         updatePlaceholder();
         setupEvents();
         startObserving();
+        observeModalBackdrop();
     }
 
     function startObserving() {
@@ -350,9 +418,36 @@
         });
     }
 
+    function observeModalBackdrop() {
+        const searchField = document.getElementById('product-search-field');
+        if (!searchField) return;
+
+        const handleBackdrop = () => {
+            const isModalOpen = document.querySelector('.o_blockUI') || document.body.classList.contains('modal-open') || document.getElementById('userscript-api-modal');
+
+            if (isModalOpen) {
+                searchField.style.zIndex = '1';
+            } else {
+                searchField.style.zIndex = '';
+            }
+        };
+
+        handleBackdrop();
+
+        const observer = new MutationObserver(() => {
+            handleBackdrop();
+        });
+
+        observer.observe(document.body, {
+            childList: true,
+            attributes: true,
+            attributeFilter: ['class']
+        });
+    }
+
     function setupEvents() {
         const suggestionsDiv = document.getElementById('search-suggestions');
-        
+
 
         searchFieldContainer.addEventListener('transitionend', () => {
             if (!searchFieldContainer.classList.contains('visible')) {
@@ -382,17 +477,21 @@
         document.addEventListener('click', (e) => {
             if (!searchFieldContainer.contains(e.target) && !searchButtonContainer.contains(e.target)) {
                 if (searchFieldContainer.classList.contains('visible')) {
-                    hideSearchField();
+                    if (searchInput.value.trim().length > 0) {
+                        hideSuggestions();
+                    } else {
+                        hideSearchField();
+                    }
                 }
             }
-        });
+        }, true);
 
         searchInput.addEventListener('input', (e) => {
             const query = e.target.value.trim();
             lastSearchTerm = query;
             enterPressState = { pressed: false, ctrlKey: false };
 
-            
+
             if (query.length > 0) {
                 addClearButton();
             } else {
@@ -402,18 +501,37 @@
             debouncedSearch(query);
         });
 
-        
+        searchInput.addEventListener('focus', () => {
+            if (searchFieldContainer.classList.contains('visible')) {
+                const query = searchInput.value.trim();
+                if (query.length >= 2 && lastSuggestionsCache.term === query && lastSuggestionsCache.results.length > 0) {
+                    renderSuggestions(lastSuggestionsCache.results, query);
+                    showSuggestions();
+                }
+            }
+        });
+
         searchFieldContainer.addEventListener('click', (e) => {
             const clearBtn = e.target.closest('#product-search-clear-btn');
-            if (!clearBtn) return; 
+            if (!clearBtn) return;
 
             e.preventDefault();
+            e.stopPropagation();
+
+            debouncedSearch.cancel();
+
+            if (currentSearchAbortController) {
+                currentSearchAbortController.abort();
+                currentSearchAbortController = null;
+            }
+            isSearching = false;
+
             searchInput.value = '';
             lastSearchTerm = '';
             lastSuggestionsCache = { term: '', results: [] };
             hideSuggestions();
             setStatus(null);
-            removeClearButton(); 
+            removeClearButton();
             searchInput.focus();
         });
 
@@ -451,12 +569,14 @@
             const suggestionLink = e.target.closest('.suggestion-item');
             if (!suggestionLink) return;
 
-                if (e.target.tagName === 'IMG') {
-                e.preventDefault();
-                const productId = suggestionLink.dataset.id;
-                showImageViewer(productId);
-                hideSuggestions();
-                return;
+            if (e.target.tagName === 'IMG') {
+                if (e.target.classList.contains('image-zoomable')) {
+                    e.preventDefault();
+                    const productId = suggestionLink.dataset.id;
+                    showImageViewer(productId);
+                    hideSuggestions();
+                    return;
+                }
             }
 
             if (!e.ctrlKey && e.button !== 1) {
@@ -476,12 +596,7 @@
     }
 
     function openSearchField() {
-        
-        
-        
-        searchButtonContainer.style.display = 'none'; 
-        
-
+        searchButtonContainer.style.display = 'none';
         searchFieldContainer.style.display = 'flex';
         setTimeout(() => searchFieldContainer.classList.add('visible'), 10);
         updatePlaceholder();
@@ -490,11 +605,11 @@
         searchInput.select();
         setStatus(null);
 
-        
+
         if (lastSearchTerm.length > 0) {
             addClearButton();
         } else {
-            removeClearButton(); 
+            removeClearButton();
         }
 
         if (lastSearchTerm.length >= 2 && lastSuggestionsCache.term === lastSearchTerm && lastSuggestionsCache.results.length > 0) {
@@ -506,45 +621,54 @@
 
     function updatePlaceholder() {
         searchInput.placeholder = getTranslation('placeholder');
-        
     }
 
     function hideSearchField() {
         searchFieldContainer.classList.remove('visible');
-
-        
-        
-        
-        
-        searchButtonContainer.style.display = ''; 
-        
-
+        searchButtonContainer.style.display = '';
         hideSuggestions();
         setStatus(null);
     }
 
-    
     function addClearButton() {
-        if (document.getElementById('product-search-clear-wrapper')) return; 
+        if (document.getElementById('product-search-clear-btn')) return;
 
         const searchView = searchFieldContainer.querySelector('.o_cp_searchview');
         if (searchView) {
-            
-            const buttonHTML = `
-                <div class="o-dropdown dropdown o-dropdown--no-caret" id="product-search-clear-wrapper">
-                    <button id="product-search-clear-btn" class="o_searchview_dropdown_toggler d-print-none btn btn-outline-secondary rounded-start-0" title="${getTranslation('clear')}" aria-label="${getTranslation('clear')}">
-                        <i class="fa fa-times" aria-hidden="true"></i>
-                    </button>
-                </div>
+            const majorVersion = getOdooMajorVersion();
+
+            let buttonHTML = `
+                <button id="product-search-clear-btn" class="o_searchview_dropdown_toggler d-print-none btn btn-outline-secondary rounded-start-0" title="${getTranslation('clear')}" aria-label="${getTranslation('clear')}">
+                    <i class="fa fa-times" aria-hidden="true"></i>
+                </button>
             `;
+
+            if (majorVersion <= 17) {
+                buttonHTML = `
+                    <div class="o-dropdown dropdown o-dropdown--no-caret">
+                        ${buttonHTML}
+                    </div>
+                `;
+            }
             searchView.insertAdjacentHTML('beforeend', buttonHTML);
         }
     }
 
     function removeClearButton() {
-        const wrapper = document.getElementById('product-search-clear-wrapper');
-        if (wrapper) {
-            wrapper.remove();
+        const button = document.getElementById('product-search-clear-btn');
+        if (!button) return;
+
+        const majorVersion = getOdooMajorVersion();
+
+        if (majorVersion <= 17) {
+            const wrapper = button.parentElement;
+            if (wrapper && (wrapper.classList.contains('o-dropdown') || wrapper.classList.contains('o-dropdown--no-caret'))) {
+                wrapper.remove();
+            } else {
+                button.remove();
+            }
+        } else {
+            button.remove();
         }
     }
 
@@ -587,7 +711,7 @@
             if (!window.Viewer) {
                 console.error("Viewer.js kütüphanesi yüklenmemiş veya bulunamadı. (@require çalışmamış olabilir)");
                 hideViewerLoader();
-                return; 
+                return;
             }
             if (!ODOO_CONFIG.db || !ODOO_CONFIG.api_key) {
                 console.error("API anahtarı veya DB bilgisi eksik.");
@@ -627,6 +751,7 @@
                 if (viewer) viewer.destroy();
 
                 viewer = new window.Viewer(viewerContainer, {
+                    zIndex: 999999,
                     viewed: () => {
                         hideViewerLoader();
                     },
@@ -664,7 +789,6 @@
     function hideSuggestions() {
         const suggestionsDiv = document.getElementById('search-suggestions');
         suggestionsDiv.style.display = 'none';
-        suggestionsDiv.innerHTML = '';
     }
 
     function navigateSuggestions(direction) {
@@ -712,7 +836,7 @@
             canLoadMore = true;
             lastSuggestionsCache = { term: query, results: [] };
             const suggestionsDiv = document.getElementById('search-suggestions');
-            suggestionsDiv.innerHTML = '<div class="search-loader"></div>';
+            suggestionsDiv.innerHTML = '<div class="search-loader text-primary"></div>';
             showSuggestions();
         }
 
@@ -793,8 +917,8 @@
 
         const suggestionsDiv = document.getElementById('search-suggestions');
         const loader = document.createElement('div');
-        loader.className = 'lazy-load-indicator';
-        loader.textContent = getTranslation('loadingMore');
+        loader.className = 'lazy-load-indicator text-primary';
+        loader.innerHTML = '<div class="lds-ellipsis"><div></div><div></div><div></div><div></div></div>';
         suggestionsDiv.appendChild(loader);
 
         await searchSuggestions(lastSearchTerm, false);
@@ -831,6 +955,12 @@
             const highlightedDefaultCode = highlightWildcardSearch(defaultCode, query);
 
             const secondLine = defaultCode ? `[${highlightedDefaultCode}] ${highlightedName}` : highlightedName;
+
+            const hasImage = !!p.image_128;
+            const imgClass = hasImage ? 'image-zoomable' : 'image-placeholder';
+            const imgStyle = `width: 36px; height: 36px; object-fit: cover; border-radius: 4px; ${hasImage ? 'cursor: zoom-in;' : 'cursor: default;'}`;
+            const imgTitle = hasImage ? 'Büyük resim için tıklayın' : '';
+
             return `
                 <a href="${url}" class="suggestion-item dropdown-item" data-id="${p.id}" style="
                     display: flex; align-items: center; gap: 10px;
@@ -838,10 +968,10 @@
                     color: inherit;
                     text-decoration: none;
                 ">
-                    <img src="${img}" style="width: 36px; height: 36px; object-fit: cover; border-radius: 4px; cursor: zoom-in;" title="Büyük resim için tıklayın">
+                    <img src="${img}" style="${imgStyle}" title="${imgTitle}" class="${imgClass}">
                     <div style="flex:1; min-width:0;">
                         <div style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${highlightedBarcode}</div>
-                        <div style="font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${secondLine}</div>
+                        <div style="font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${secondLine}</div>
                     </div>
                 </a>
             `;
@@ -853,6 +983,7 @@
         if (!products || !products.length) {
             setStatus(getTranslation('notFound'));
             hideSuggestions();
+            suggestionsDiv.innerHTML = '';
             return;
         }
 
@@ -872,6 +1003,19 @@
 
     async function detectOdooConfig() {
         try {
+            if (window.odoo && window.odoo.__session_info__) {
+                const s = window.odoo.__session_info__;
+                ODOO_CONFIG.db = s.db;
+                ODOO_CONFIG.uid = s.uid;
+                ODOO_CONFIG.username = s.username;
+                ODOO_CONFIG.server_version_info = s.server_version_info;
+                if (s.user_context?.lang) {
+                    ODOO_CONFIG.lang = s.user_context.lang;
+                    ODOO_CONFIG.context = { lang: s.user_context.lang, tz: s.user_context.tz || 'UTC' };
+                }
+                return true;
+            }
+
             const r = await fetch(`${ODOO_CONFIG.url}/web/session/get_session_info`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -885,6 +1029,7 @@
                     ODOO_CONFIG.db = s.db;
                     ODOO_CONFIG.uid = s.uid;
                     ODOO_CONFIG.username = s.username;
+                    ODOO_CONFIG.server_version_info = s.server_version_info;
                     if (s.user_context?.lang) {
                         ODOO_CONFIG.lang = s.user_context.lang;
                         ODOO_CONFIG.context = { lang: s.user_context.lang, tz: s.user_context.tz || 'UTC' };
@@ -894,6 +1039,7 @@
             }
             return false;
         } catch (e) {
+            console.error("Odoo config tespiti hatası:", e);
             return false;
         }
     }
@@ -904,10 +1050,13 @@
 
         const configDetected = await detectOdooConfig();
         if (!configDetected) {
-            return;
+            await new Promise(resolve => setTimeout(resolve, 500));
+            const configDetectedAgain = await detectOdooConfig();
+            if (!configDetectedAgain) {
+                 console.error("Odoo config bilgileri tespit edilemedi.");
+                 return;
+            }
         }
-
-
 
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', addSearchToNavbar);
