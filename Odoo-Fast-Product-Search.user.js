@@ -2,7 +2,7 @@
 // @name            Odoo Fast Product Search
 // @name:tr         Odoo Hızlı Ürün Arama
 // @namespace       https://github.com/sipsak
-// @version         1.3
+// @version         1.4
 // @description     Adds a search box to quickly look up a desired product in Odoo and navigate directly to its product form page.
 // @description:tr  Odoo'ya istenilen ürünü hızlıca arayıp ürün kartının içine gidebilmek için bir arama kutusu ekler.
 // @author          Burak Şipşak
@@ -27,11 +27,11 @@
         url: window.location.origin,
         db: null,
         username: null,
-        api_key: null,
         uid: null,
         lang: null,
         context: {},
-        server_version_info: null
+        server_version_info: null,
+        csrf_token: null
     };
 
     let isSearching = false;
@@ -50,7 +50,6 @@
     let canLoadMore = true;
     let isLoadingMore = false;
 
-
     const translations = {
         'tr_TR': {
             placeholder: 'Ürün kodu, adı veya iç referansı...',
@@ -61,11 +60,7 @@
             dbError: 'Veritabanı bilgileri tespit edilemedi.',
             apiError: 'API Hatası: {message}',
             searchError: 'Arama sırasında hata oluştu',
-            clear: 'Temizle',
-            apiNotSet: 'API Anahtarı ayarlanmamış. Lütfen eklenti menüsünden ayarlayın.',
-            apiTitle: 'API',
-            apiLabel: "Odoo'dan oluşturduğunuz API anahtarını girin:",
-            apiButton: 'Tamam'
+            clear: 'Temizle'
         },
         'en_US': {
             placeholder: 'Product code, name or internal reference...',
@@ -76,11 +71,7 @@
             dbError: 'Database information could not be detected.',
             apiError: 'API Error: {message}',
             searchError: 'Error occurred during search',
-            clear: 'Clear',
-            apiNotSet: 'API Key is not set. Please set it from the script menu.',
-            apiTitle: 'API',
-            apiLabel: 'Enter your API key generated from Odoo:',
-            apiButton: 'OK'
+            clear: 'Clear'
         }
     };
 
@@ -123,7 +114,6 @@
                         <input type="text" id="product-search-input" class="o_searchview_input o_input d-print-none flex-grow-1 w-auto border-0 focus" role="searchbox" aria-selected="true" autocomplete="off" placeholder="">
                     </div>
                 </div>
-
             </div>
             <div id="search-suggestions" class="dropdown-menu o-dropdown--menu show"></div>
             <div id="search-status" class="dropdown-menu o-dropdown--menu show"></div>
@@ -279,57 +269,7 @@
             border-radius: 50%;
             animation: spin 1s linear infinite;
         }
-
     `;
-
-    function promptForApiKey() {
-        if (document.getElementById('userscript-api-modal')) return;
-
-        const modal = document.createElement('div');
-        modal.id = 'userscript-api-modal';
-        modal.className = 'modal fade show custom-alert-modal';
-        modal.tabIndex = -1;
-        modal.role = 'dialog';
-        modal.style.display = 'block';
-        modal.style.zIndex = '1050';
-
-        modal.innerHTML = `
-            <div class="modal-dialog modal-dialog-centered modal-md">
-                <div class="modal-content">
-                    <header class="modal-header">
-                        <h4 class="modal-title text-break">${getTranslation('apiTitle')}</h4>
-                        <button type="button" class="btn-close" aria-label="Close"></button>
-                    </header>
-                    <main class="modal-body">
-                        ${getTranslation('apiLabel')}
-                        <input type="text" class="form-control" id="userscript-api-key-input" style="margin-top: 10px;" value="${ODOO_CONFIG.api_key || ''}">
-                    </main>
-                    <footer class="modal-footer justify-content-start">
-                        <button class="btn btn-primary" id="userscript-api-save-btn">${getTranslation('apiButton')}</button>
-                    </footer>
-                </div>
-            </div>
-        `;
-
-        document.body.appendChild(modal);
-
-        const closeModal = () => {
-            modal.remove();
-        };
-
-        modal.querySelector('.btn-close').addEventListener('click', closeModal);
-        modal.querySelector('#userscript-api-save-btn').addEventListener('click', async () => {
-            const inputVal = modal.querySelector('#userscript-api-key-input').value.trim();
-            if (inputVal) {
-                await GM_setValue('odoo_api_key', inputVal);
-                ODOO_CONFIG.api_key = inputVal;
-            } else {
-                await GM_setValue('odoo_api_key', null);
-                ODOO_CONFIG.api_key = null;
-            }
-            closeModal();
-        });
-    }
 
     function debounce(func, wait) {
         let timeout;
@@ -423,7 +363,7 @@
         if (!searchField) return;
 
         const handleBackdrop = () => {
-            const isModalOpen = document.querySelector('.o_blockUI') || document.body.classList.contains('modal-open') || document.getElementById('userscript-api-modal');
+            const isModalOpen = document.querySelector('.o_blockUI') || document.body.classList.contains('modal-open');
 
             if (isModalOpen) {
                 searchField.style.zIndex = '1';
@@ -447,7 +387,6 @@
 
     function setupEvents() {
         const suggestionsDiv = document.getElementById('search-suggestions');
-
 
         searchFieldContainer.addEventListener('transitionend', () => {
             if (!searchFieldContainer.classList.contains('visible')) {
@@ -490,7 +429,6 @@
             const query = e.target.value.trim();
             lastSearchTerm = query;
             enterPressState = { pressed: false, ctrlKey: false };
-
 
             if (query.length > 0) {
                 addClearButton();
@@ -605,7 +543,6 @@
         searchInput.select();
         setStatus(null);
 
-
         if (lastSearchTerm.length > 0) {
             addClearButton();
         } else {
@@ -709,35 +646,40 @@
         showViewerLoader();
         try {
             if (!window.Viewer) {
-                console.error("Viewer.js kütüphanesi yüklenmemiş veya bulunamadı. (@require çalışmamış olabilir)");
-                hideViewerLoader();
-                return;
-            }
-            if (!ODOO_CONFIG.db || !ODOO_CONFIG.api_key) {
-                console.error("API anahtarı veya DB bilgisi eksik.");
-                setStatus(getTranslation('apiNotSet'), true);
+                console.error("Viewer.js kütüphanesi yüklenmemiş veya bulunamadı.");
                 hideViewerLoader();
                 return;
             }
 
-            const response = await fetch(`${ODOO_CONFIG.url}/jsonrpc`, {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
+            const response = await fetch(`${ODOO_CONFIG.url}/web/dataset/call_kw`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': ODOO_CONFIG.csrf_token
+                },
                 body: JSON.stringify({
-                    jsonrpc: '2.0', method: 'call', params: {
-                        service: 'object', method: 'execute_kw', args: [
-                            ODOO_CONFIG.db, ODOO_CONFIG.uid, ODOO_CONFIG.api_key,
-                            'product.template', 'read', [parseInt(productId)],
-                            { fields: ['image_1920'], context: ODOO_CONFIG.context }
-                        ]
-                    }, id: Math.floor(Math.random() * 1000)
+                    jsonrpc: '2.0',
+                    method: 'call',
+                    params: {
+                        model: 'product.template',
+                        method: 'read',
+                        args: [[parseInt(productId)]],
+                        kwargs: {
+                            fields: ['image_1920'],
+                            context: ODOO_CONFIG.context
+                        }
+                    },
+                    id: Math.floor(Math.random() * 1000)
                 })
             });
+
             const data = await response.json();
             if (data.error || !data.result?.length) {
                 console.error("Resim verisi alınamadı:", data.error || "Sonuç bulunamadı");
                 hideViewerLoader();
                 return;
             }
+
             const product = data.result[0];
             const imageData = product.image_1920;
             if (imageData) {
@@ -759,7 +701,8 @@
                         viewer.destroy();
                         viewerContainer.remove();
                     },
-                    navbar: false, title: false,
+                    navbar: false,
+                    title: false,
                     toolbar: { zoomIn: 1, zoomOut: 1, oneToOne: 1, reset: 1, prev: 0, play: 0, next: 0, rotateLeft: 1, rotateRight: 1, flipHorizontal: 1, flipVertical: 1 }
                 });
                 viewer.show();
@@ -844,27 +787,28 @@
         isSearching = true;
 
         try {
-            if (!ODOO_CONFIG.db || !ODOO_CONFIG.api_key) {
-                isSearching = false;
-                hideSuggestions();
-                if (!ODOO_CONFIG.api_key) {
-                    setStatus(getTranslation('apiNotSet'), true);
-                }
-                return;
-            };
-
-            const response = await fetch(`${ODOO_CONFIG.url}/jsonrpc`, {
+            const response = await fetch(`${ODOO_CONFIG.url}/web/dataset/call_kw`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': ODOO_CONFIG.csrf_token
+                },
                 body: JSON.stringify({
-                    jsonrpc: '2.0', method: 'call', params: {
-                        service: 'object', method: 'execute_kw', args: [
-                            ODOO_CONFIG.db, ODOO_CONFIG.uid, ODOO_CONFIG.api_key,
-                            'product.template', 'search_read',
-                            [['|', '|', ['barcode', 'ilike', query], ['name', 'ilike', query], ['default_code', 'ilike', query]]],
-                            { fields: ['id', 'name', 'barcode', 'default_code', 'image_128'], limit: SEARCH_LIMIT, offset: currentOffset, context: ODOO_CONFIG.context }
-                        ]
-                    }, id: Math.floor(Math.random() * 1000)
+                    jsonrpc: '2.0',
+                    method: 'call',
+                    params: {
+                        model: 'product.template',
+                        method: 'search_read',
+                        args: [],
+                        kwargs: {
+                            domain: ['|', '|', ['barcode', 'ilike', query], ['name', 'ilike', query], ['default_code', 'ilike', query]],
+                            fields: ['id', 'name', 'barcode', 'default_code', 'image_128'],
+                            limit: SEARCH_LIMIT,
+                            offset: currentOffset,
+                            context: ODOO_CONFIG.context
+                        }
+                    },
+                    id: Math.floor(Math.random() * 1000)
                 }),
                 signal: currentSearchAbortController.signal
             });
@@ -1001,8 +945,22 @@
         suggestionsDiv.insertAdjacentHTML('beforeend', suggestionsHTML);
     }
 
+    function extractCsrfToken() {
+        const scriptTag = document.getElementById('web.layout.odooscript');
+        if (scriptTag) {
+            const scriptContent = scriptTag.textContent;
+            const tokenMatch = scriptContent.match(/csrf_token:\s*"([^"]+)"/);
+            if (tokenMatch) {
+                return tokenMatch[1];
+            }
+        }
+        return null;
+    }
+
     async function detectOdooConfig() {
         try {
+            ODOO_CONFIG.csrf_token = extractCsrfToken();
+
             if (window.odoo && window.odoo.__session_info__) {
                 const s = window.odoo.__session_info__;
                 ODOO_CONFIG.db = s.db;
@@ -1018,7 +976,10 @@
 
             const r = await fetch(`${ODOO_CONFIG.url}/web/session/get_session_info`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': ODOO_CONFIG.csrf_token
+                },
                 body: JSON.stringify({})
             });
 
@@ -1045,9 +1006,6 @@
     }
 
     async function init() {
-        ODOO_CONFIG.api_key = await GM_getValue('odoo_api_key', null);
-        GM_registerMenuCommand(getTranslation('apiTitle'), promptForApiKey);
-
         const configDetected = await detectOdooConfig();
         if (!configDetected) {
             await new Promise(resolve => setTimeout(resolve, 500));
