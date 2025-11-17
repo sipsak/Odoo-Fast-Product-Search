@@ -2,12 +2,11 @@
 // @name            Odoo Fast Product Search
 // @name:tr         Odoo Hızlı Ürün Arama
 // @namespace       https://github.com/sipsak
-// @version         1.4
+// @version         1.5
 // @description     Adds a search box to quickly look up a desired product in Odoo and navigate directly to its product form page.
 // @description:tr  Odoo'ya istenilen ürünü hızlıca arayıp ürün kartının içine gidebilmek için bir arama kutusu ekler.
 // @author          Burak Şipşak
-// @match           https://portal.bskhvac.com.tr/*
-// @match           https://*.odoo.com/*
+// @match           *://*/*
 // @grant           GM_registerMenuCommand
 // @grant           GM_setValue
 // @grant           GM_getValue
@@ -34,6 +33,10 @@
         csrf_token: null
     };
 
+    const SETTINGS_KEY = 'odooFastProductSearch_fields';
+    const ALL_SEARCH_FIELDS = ['barcode', 'default_code', 'name', 'categ_id', 'product_tag_ids', 'description', 'seller_ids', 'seller_ids.product_name', 'seller_ids.product_code'];
+    const DEFAULT_SEARCH_FIELDS = ['barcode', 'default_code', 'name', 'categ_id', 'product_tag_ids', 'description', 'seller_ids', 'seller_ids.product_name', 'seller_ids.product_code'];
+
     let isSearching = false;
     let currentSearchAbortController = null;
     let lastSearchTerm = '';
@@ -52,26 +55,50 @@
 
     const translations = {
         'tr_TR': {
-            placeholder: 'Ürün kodu, adı veya iç referansı...',
-            emptySearchError: 'Lütfen ürün kodunu, adını veya iç referansını girin',
+            placeholder: 'Ürün ara...',
             searching: 'Aranıyor...',
             notFound: 'Ürün bulunamadı',
             foundOpening: 'Ürün bulundu: {name} - Açılıyor...',
-            dbError: 'Veritabanı bilgileri tespit edilemedi.',
-            apiError: 'API Hatası: {message}',
-            searchError: 'Arama sırasında hata oluştu',
-            clear: 'Temizle'
+            clear: 'Temizle',
+            settings: 'Arama Yapılacak Alanlar',
+            settingsTitle: 'Arama Yapılacak Alanlar',
+            save: 'Tamam',
+            cancel: 'İptal',
+            settingsError: 'En az bir alan seçmelisiniz.',
+            field_barcode: 'Barkod',
+            field_default_code: 'İç Referans',
+            field_name: 'Ürün Adı',
+            field_categ_id: 'Ürün Kategorisi',
+            field_product_tag_ids: 'Ürün Şablonu Etiketleri',
+            field_description: 'Açıklama',
+            field_seller_ids: 'Tedarikçiler',
+            'field_seller_ids.product_name': 'Tedarikçi Ürün Adı',
+            'field_seller_ids.product_code': 'Tedarikçi Ürün Kodu',
+            header_field_name: 'Alan',
+            header_technical_name: 'Teknik Adı',
         },
         'en_US': {
-            placeholder: 'Product code, name or internal reference...',
-            emptySearchError: 'Please enter product code, name or internal reference',
+            placeholder: 'Search product...',
             searching: 'Searching...',
             notFound: 'Product not found',
             foundOpening: 'Product found: {name} - Opening...',
-            dbError: 'Database information could not be detected.',
-            apiError: 'API Error: {message}',
-            searchError: 'Error occurred during search',
-            clear: 'Clear'
+            clear: 'Clear',
+            settings: 'Fields to Search',
+            settingsTitle: 'Fields to Search',
+            save: 'OK',
+            cancel: 'Cancel',
+            settingsError: 'You must select at least one field.',
+            field_barcode: 'Barcode',
+            field_default_code: 'Internal Reference',
+            field_name: 'Product Name',
+            field_categ_id: 'Product Category',
+            field_product_tag_ids: 'Product Template Tags',
+            field_description: 'Description',
+            field_seller_ids: 'Vendors',
+            'field_seller_ids.product_name': 'Vendor Product Name',
+            'field_seller_ids.product_code': 'Vendor Product Code',
+            header_field_name: 'Field',
+            header_technical_name: 'Technical Name',
         }
     };
 
@@ -84,6 +111,32 @@
         });
         return text;
     }
+
+    function getSearchSettings() {
+        const savedSettings = GM_getValue(SETTINGS_KEY);
+        if (!savedSettings) {
+            return DEFAULT_SEARCH_FIELDS;
+        }
+        try {
+            const fields = JSON.parse(savedSettings);
+            if (!Array.isArray(fields) || fields.length === 0) {
+                return DEFAULT_SEARCH_FIELDS;
+            }
+            return fields;
+        } catch (e) {
+            console.error("Arama ayarları okunurken hata oluştu:", e);
+            return DEFAULT_SEARCH_FIELDS;
+        }
+    }
+
+    function saveSearchSettings(fieldsArray) {
+        if (!Array.isArray(fieldsArray) || fieldsArray.length === 0) {
+            console.warn("Geçersiz ayar kaydetme denemesi engellendi.");
+            return;
+        }
+        GM_setValue(SETTINGS_KEY, JSON.stringify(fieldsArray));
+    }
+
 
     function getOdooMajorVersion() {
         if (!ODOO_CONFIG.server_version_info || ODOO_CONFIG.server_version_info.length === 0) {
@@ -120,6 +173,78 @@
         </div>
     `;
 
+    function buildSettingsModalHTML() {
+        const fieldRowsHTML = ALL_SEARCH_FIELDS.map(field => {
+            const inputId = `search_field_${field}`;
+            const translatedName = getTranslation('field_' + field);
+            return `
+                <tr class="o_data_row">
+                    <td class="o_list_record_selector user-select-none" tabindex="-1">
+                        <div class="o-checkbox form-check">
+                            <input type="checkbox" class="form-check-input" id="${inputId}" value="${field}">
+                            <label class="form-check-label" for="${inputId}"></label>
+                        </div>
+                    </td>
+                    <td class="o_data_cell cursor-pointer o_field_cell o_readonly_modifier" data-tooltip-delay="1000" tabindex="-1" name="field_name">${translatedName}</td>
+                    <td class="o_data_cell cursor-pointer o_field_cell o_readonly_modifier" data-tooltip-delay="1000" tabindex="-1" name="field_technical">${field}</td>
+                </tr>
+            `;
+        }).join('');
+
+        const mainContentHTML = `
+            <div class="o_list_view o_view_controller">
+                <div class="o_content">
+                    <div class="o_list_renderer o_renderer table-responsive o_list_renderer_16" tabindex="-1">
+                        <table class="o_list_table table table-sm table-hover position-relative mb-0 o_list_table_ungrouped table-striped" style="table-layout: fixed;">
+                            <thead>
+                                <tr>
+                                    <th class="o_list_record_selector o_list_controller align-middle pe-1 cursor-pointer" tabindex="-1" style="width: 41px;">
+                                        <div class="o-checkbox form-check d-flex m-0">
+                                            <input type="checkbox" class="form-check-input" id="search-settings-select-all">
+                                            <label class="form-check-label" for="search-settings-select-all"></label>
+                                        </div>
+                                    </th>
+                                    <th data-tooltip-delay="1000" tabindex="-1" class="align-middle o_column_sortable position-relative cursor-pointer opacity-trigger-hover">
+                                        <div class="d-flex" style="position: relative;"><span class="d-block min-w-0 text-truncate flex-grow-1">${getTranslation('header_field_name')}</span></div>
+                                    </th>
+                                    <th data-tooltip-delay="1000" tabindex="-1" class="align-middle o_column_sortable position-relative cursor-pointer opacity-trigger-hover">
+                                        <div class="d-flex" style="position: relative;"><span class="d-block min-w-0 text-truncate flex-grow-1">${getTranslation('header_technical_name')}</span></div>
+                                    </th>
+                            </thead>
+                            <tbody class="ui-sortable">
+                                ${fieldRowsHTML}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        return `
+            <div id="product-search-settings-modal" class="o_modal modal" style="display: none; z-index: 100001;" role="dialog" tabindex="-1">
+                <div class="modal-dialog modal-dialog-centered modal-md">
+                    <div class="modal-content">
+                        <header class="modal-header">
+                            <h5 class="modal-title">${getTranslation('settingsTitle')}</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close" id="search-settings-close-x"></button>
+                        </header>
+                        <main class="modal-body p-0">
+                            ${mainContentHTML}
+                            <div id="search-settings-error" class="text-danger mt-2 p-3" style="display: none;">
+                                ${getTranslation('settingsError')}
+                            </div>
+                        </main>
+                        <footer class="modal-footer justify-content-around justify-content-md-start flex-wrap gap-1 w-100">
+                            <button type="button" class="btn btn-primary" id="search-settings-save">${getTranslation('save')}</button>
+                            <button type="button" class="btn btn-secondary" id="search-settings-cancel">${getTranslation('cancel')}</button>
+                        </footer>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+
     const customCSS = `
         #product-search-field {
             display: none;
@@ -137,7 +262,6 @@
             transform: scaleX(1);
             opacity: 1;
         }
-
         #product-search-field .o_cp_searchview {
             width: 100%;
         }
@@ -186,7 +310,6 @@
             align-items: center;
             height: 36px;
         }
-
         .lds-ellipsis,
         .lds-ellipsis div {
           box-sizing: border-box;
@@ -247,7 +370,6 @@
             transform: translate(24px, 0);
           }
         }
-
         #viewer-loader-overlay {
             position: fixed;
             top: 0;
@@ -268,6 +390,11 @@
             border-top-color: #fff;
             border-radius: 50%;
             animation: spin 1s linear infinite;
+        }
+        #product-search-settings-modal {
+        }
+        #product-search-settings-modal.show {
+            display: block !important;
         }
     `;
 
@@ -329,6 +456,8 @@
         const btn = document.getElementById('product-search-button');
         btn.insertAdjacentHTML('afterend', searchFieldHTML);
 
+        document.body.insertAdjacentHTML('beforeend', buildSettingsModalHTML());
+
         searchButtonContainer = btn;
         searchFieldContainer = document.getElementById('product-search-field');
         searchInput = document.getElementById('product-search-input');
@@ -385,6 +514,51 @@
         });
     }
 
+    function openSettingsModal() {
+        const modal = document.getElementById('product-search-settings-modal');
+        const errorDiv = document.getElementById('search-settings-error');
+
+        const currentSettings = getSearchSettings();
+
+        ALL_SEARCH_FIELDS.forEach(field => {
+            const checkbox = document.getElementById(`search_field_${field}`);
+            if (checkbox) {
+                checkbox.checked = currentSettings.includes(field);
+                const row = checkbox.closest('tr.o_data_row');
+                if (row) {
+                    if (checkbox.checked) {
+                        row.classList.add('table-info', 'o_data_row_selected');
+                    } else {
+                        row.classList.remove('table-info', 'o_data_row_selected');
+                    }
+                }
+            }
+        });
+
+        if (errorDiv) {
+            errorDiv.style.display = 'none';
+        }
+
+        modal.classList.add('show');
+        updateSelectAllSettingsState();
+    }
+
+    function closeSettingsModal() {
+        const modal = document.getElementById('product-search-settings-modal');
+        modal.classList.remove('show');
+    }
+
+    function updateSelectAllSettingsState() {
+        const modalSelectAll = document.getElementById('search-settings-select-all');
+        if (!modalSelectAll) return;
+
+        const allFieldCheckboxes = document.querySelectorAll('#product-search-settings-modal tbody input[type="checkbox"]');
+        if (allFieldCheckboxes.length === 0) return;
+
+        const allChecked = Array.from(allFieldCheckboxes).every(cb => cb.checked);
+        modalSelectAll.checked = allChecked;
+    }
+
     function setupEvents() {
         const suggestionsDiv = document.getElementById('search-suggestions');
 
@@ -414,10 +588,16 @@
         });
 
         document.addEventListener('click', (e) => {
+            const settingsModal = document.getElementById('product-search-settings-modal');
+            if (settingsModal && settingsModal.contains(e.target)) {
+                return;
+            }
+
             if (!searchFieldContainer.contains(e.target) && !searchButtonContainer.contains(e.target)) {
                 if (searchFieldContainer.classList.contains('visible')) {
                     if (searchInput.value.trim().length > 0) {
                         hideSuggestions();
+                        setStatus(null);
                     } else {
                         hideSearchField();
                     }
@@ -432,8 +612,10 @@
 
             if (query.length > 0) {
                 addClearButton();
+                removeSettingsButton();
             } else {
                 removeClearButton();
+                addSettingsButton();
             }
 
             debouncedSearch(query);
@@ -442,15 +624,38 @@
         searchInput.addEventListener('focus', () => {
             if (searchFieldContainer.classList.contains('visible')) {
                 const query = searchInput.value.trim();
-                if (query.length >= 2 && lastSuggestionsCache.term === query && lastSuggestionsCache.results.length > 0) {
-                    renderSuggestions(lastSuggestionsCache.results, query);
+
+                if (isSearching) {
+                    const suggestionsDiv = document.getElementById('search-suggestions');
+                    suggestionsDiv.innerHTML = '<div class="search-loader text-primary"></div>';
                     showSuggestions();
+                    setStatus(null);
+                    return;
+                }
+
+                if (query.length >= 2 && lastSuggestionsCache.term === query) {
+                    if (lastSuggestionsCache.results.length > 0) {
+                        renderSuggestions(lastSuggestionsCache.results, query);
+                        showSuggestions();
+                    } else {
+                        setStatus(getTranslation('notFound'));
+                        hideSuggestions();
+                    }
                 }
             }
         });
 
         searchFieldContainer.addEventListener('click', (e) => {
             const clearBtn = e.target.closest('#product-search-clear-btn');
+            const settingsBtn = e.target.closest('#product-search-settings-btn');
+
+            if (settingsBtn) {
+                e.preventDefault();
+                e.stopPropagation();
+                openSettingsModal();
+                return;
+            }
+
             if (!clearBtn) return;
 
             e.preventDefault();
@@ -470,6 +675,7 @@
             hideSuggestions();
             setStatus(null);
             removeClearButton();
+            addSettingsButton();
             searchInput.focus();
         });
 
@@ -531,6 +737,80 @@
                 loadMoreSuggestions();
             }
         });
+
+        const modalSaveBtn = document.getElementById('search-settings-save');
+        const modalCancelBtn = document.getElementById('search-settings-cancel');
+        const modalCloseXBtn = document.getElementById('search-settings-close-x');
+        const modalSelectAll = document.getElementById('search-settings-select-all');
+        const modalTbody = document.querySelector('#product-search-settings-modal .ui-sortable');
+
+        if (modalSaveBtn) {
+            modalSaveBtn.addEventListener('click', () => {
+                const errorDiv = document.getElementById('search-settings-error');
+                const selectedFields = [];
+
+                ALL_SEARCH_FIELDS.forEach(field => {
+                    const checkbox = document.getElementById(`search_field_${field}`);
+                    if (checkbox && checkbox.checked) {
+                        selectedFields.push(field);
+                    }
+                });
+
+                if (selectedFields.length === 0) {
+                    if (errorDiv) errorDiv.style.display = 'block';
+                } else {
+                    if (errorDiv) errorDiv.style.display = 'none';
+                    saveSearchSettings(selectedFields);
+                    closeSettingsModal();
+                }
+            });
+        }
+
+        if (modalCancelBtn) {
+            modalCancelBtn.addEventListener('click', closeSettingsModal);
+        }
+
+        if (modalCloseXBtn) {
+            modalCloseXBtn.addEventListener('click', closeSettingsModal);
+        }
+
+        if (modalSelectAll) {
+            modalSelectAll.addEventListener('click', () => {
+                const allRows = document.querySelectorAll('#product-search-settings-modal .o_data_row');
+                allRows.forEach(row => {
+                    const checkbox = row.querySelector('input[type="checkbox"]');
+                    if (checkbox) {
+                        checkbox.checked = modalSelectAll.checked;
+                        if (modalSelectAll.checked) {
+                            row.classList.add('table-info', 'o_data_row_selected');
+                        } else {
+                            row.classList.remove('table-info', 'o_data_row_selected');
+                        }
+                    }
+                });
+            });
+        }
+
+        if (modalTbody) {
+            modalTbody.addEventListener('click', (e) => {
+                const targetRow = e.target.closest('tr.o_data_row');
+                if (!targetRow) return;
+
+                const checkbox = targetRow.querySelector('input[type="checkbox"]');
+                if (!checkbox) return;
+
+                if (e.target.tagName !== 'INPUT') {
+                    checkbox.checked = !checkbox.checked;
+                }
+
+                if (checkbox.checked) {
+                    targetRow.classList.add('table-info', 'o_data_row_selected');
+                } else {
+                    targetRow.classList.remove('table-info', 'o_data_row_selected');
+                }
+                updateSelectAllSettingsState();
+            });
+        }
     }
 
     function openSearchField() {
@@ -545,8 +825,10 @@
 
         if (lastSearchTerm.length > 0) {
             addClearButton();
+            removeSettingsButton();
         } else {
             removeClearButton();
+            addSettingsButton();
         }
 
         if (lastSearchTerm.length >= 2 && lastSuggestionsCache.term === lastSearchTerm && lastSuggestionsCache.results.length > 0) {
@@ -609,13 +891,64 @@
         }
     }
 
+    function addSettingsButton() {
+        if (document.getElementById('product-search-settings-btn')) return;
+
+        const searchView = searchFieldContainer.querySelector('.o_cp_searchview');
+        if (searchView) {
+            const majorVersion = getOdooMajorVersion();
+
+            let buttonHTML = `
+                <button id="product-search-settings-btn" class="o_searchview_dropdown_toggler d-print-none btn btn-outline-secondary rounded-start-0" title="${getTranslation('settings')}" aria-label="${getTranslation('settings')}">
+                    <i class="fa fa-sliders" aria-hidden="true"></i>
+                </button>
+            `;
+
+            if (majorVersion <= 17) {
+                buttonHTML = `
+                    <div class="o-dropdown dropdown o-dropdown--no-caret">
+                        ${buttonHTML}
+                    </div>
+                `;
+            }
+
+            const clearBtnWrapper = document.getElementById('product-search-clear-btn')?.closest('.o-dropdown, #product-search-clear-btn');
+            if (clearBtnWrapper) {
+                clearBtnWrapper.insertAdjacentHTML('beforebegin', buttonHTML);
+            } else {
+                searchView.insertAdjacentHTML('beforeend', buttonHTML);
+            }
+        }
+    }
+
+    function removeSettingsButton() {
+        const button = document.getElementById('product-search-settings-btn');
+        if (!button) return;
+
+        const majorVersion = getOdooMajorVersion();
+
+        if (majorVersion <= 17) {
+            const wrapper = button.parentElement;
+            if (wrapper && (wrapper.classList.contains('o-dropdown') || wrapper.classList.contains('o-dropdown--no-caret'))) {
+                wrapper.remove();
+            } else {
+                button.remove();
+            }
+        } else {
+            button.remove();
+        }
+    }
+
     function clearLastSearchTerm() {
         lastSearchTerm = '';
         lastSuggestionsCache = { term: '', results: [] };
     }
 
     function getProductUrl(productId) {
-        return `${ODOO_CONFIG.url}/web#id=${productId}&cids=1&menu_id=326&action=501&model=product.template&view_type=form`;
+        // Değişiklik: Odoo 17+ ve eski sürümlerle uyumlu olması için
+        // kullanıcı tarafından sağlanan evrensel URL yapısı kullanıldı.
+        // `cids`, `menu_id`, ve `action` parametreleri kaldırıldı.
+        return `${ODOO_CONFIG.url}/web#id=${productId}&model=product.template&view_type=form`;
     }
 
     function getProductImageUrl(productId, field = 'image_128') {
@@ -675,7 +1008,7 @@
 
             const data = await response.json();
             if (data.error || !data.result?.length) {
-                console.error("Resim verisi alınamadı:", data.error || "Sonuç bulunamadı");
+                console.error("Görsel verisi alınamadı:", data.error || "Sonuç bulunamadı");
                 hideViewerLoader();
                 return;
             }
@@ -710,7 +1043,7 @@
                 hideViewerLoader();
             }
         } catch (e) {
-            console.error("Resim görüntüleyici hatası:", e);
+            console.error("Görüntüleyici hatası:", e);
             hideViewerLoader();
         }
     }
@@ -772,6 +1105,13 @@
             return;
         }
 
+        const activeSearchFields = getSearchSettings();
+        if (activeSearchFields.length === 0) {
+            setStatus(getTranslation('notFound'));
+            hideSuggestions();
+            return;
+        }
+
         if (isNewSearch) {
             if (currentSearchAbortController) currentSearchAbortController.abort();
             currentSearchAbortController = new AbortController();
@@ -785,6 +1125,19 @@
 
         setStatus(null);
         isSearching = true;
+
+        const fieldClauses = activeSearchFields.map(field => [field, 'ilike', query]);
+        let dynamicDomain;
+
+        if (fieldClauses.length === 1) {
+            dynamicDomain = fieldClauses;
+        } else {
+            dynamicDomain = [];
+            for (let i = 0; i < fieldClauses.length - 1; i++) {
+                dynamicDomain.push('|');
+            }
+            dynamicDomain.push(...fieldClauses);
+        }
 
         try {
             const response = await fetch(`${ODOO_CONFIG.url}/web/dataset/call_kw`, {
@@ -801,7 +1154,7 @@
                         method: 'search_read',
                         args: [],
                         kwargs: {
-                            domain: ['|', '|', ['barcode', 'ilike', query], ['name', 'ilike', query], ['default_code', 'ilike', query]],
+                            domain: dynamicDomain,
                             fields: ['id', 'name', 'barcode', 'default_code', 'image_128'],
                             limit: SEARCH_LIMIT,
                             offset: currentOffset,
@@ -836,6 +1189,10 @@
                     handleSingleProductNavigation(products[0], wasCtrl);
                     return;
                 }
+            }
+
+            if (document.activeElement !== searchInput) {
+                return;
             }
 
             if(isNewSearch) {
@@ -886,7 +1243,7 @@
         return text.replace(regex, '<strong class="text-primary">$1</strong>');
     }
 
-    function buildSuggestionHTML(products, query) {
+function buildSuggestionHTML(products, query) {
          return products.map(p => {
             const barcode = p.barcode || '';
             const name = p.name || '';
@@ -1006,6 +1363,13 @@
     }
 
     async function init() {
+        // Odoo kontrolü: 'web.layout.odooscript' id'li script etiketi yoksa çalışma
+        const scriptTag = document.getElementById('web.layout.odooscript');
+        if (!scriptTag) {
+            // console.log("Odoo Fast Product Search: Odoo sitesi bulunamadı. Script durduruluyor.");
+            return; // Scriptin çalışmasını engelle
+        }
+
         const configDetected = await detectOdooConfig();
         if (!configDetected) {
             await new Promise(resolve => setTimeout(resolve, 500));
