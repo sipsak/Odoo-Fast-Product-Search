@@ -2,7 +2,7 @@
 // @name            Odoo Fast Product Search
 // @name:tr         Odoo Hızlı Ürün Arama
 // @namespace       https://github.com/sipsak
-// @version         1.5
+// @version         1.6
 // @description     Adds a search box to quickly look up a desired product in Odoo and navigate directly to its product form page.
 // @description:tr  Odoo'ya istenilen ürünü hızlıca arayıp ürün kartının içine gidebilmek için bir arama kutusu ekler.
 // @author          Burak Şipşak
@@ -19,7 +19,7 @@
 // @downloadURL     https://raw.githubusercontent.com/sipsak/Odoo-Fast-Product-Search/main/Odoo-Fast-Product-Search.user.js
 // ==/UserScript==
 
-(function() {
+(function () {
     'use strict';
 
     const ODOO_CONFIG = {
@@ -124,19 +124,16 @@
             }
             return fields;
         } catch (e) {
-            console.error("Arama ayarları okunurken hata oluştu:", e);
             return DEFAULT_SEARCH_FIELDS;
         }
     }
 
     function saveSearchSettings(fieldsArray) {
         if (!Array.isArray(fieldsArray) || fieldsArray.length === 0) {
-            console.warn("Geçersiz ayar kaydetme denemesi engellendi.");
             return;
         }
         GM_setValue(SETTINGS_KEY, JSON.stringify(fieldsArray));
     }
-
 
     function getOdooMajorVersion() {
         if (!ODOO_CONFIG.server_version_info || ODOO_CONFIG.server_version_info.length === 0) {
@@ -243,7 +240,6 @@
             </div>
         `;
     }
-
 
     const customCSS = `
         #product-search-field {
@@ -396,16 +392,19 @@
         #product-search-settings-modal.show {
             display: block !important;
         }
+        .suggestion-item::before {
+            display: none !important;
+        }
     `;
 
     function debounce(func, wait) {
         let timeout;
-        const executedFunction = function(...args) {
+        const executedFunction = function (...args) {
             clearTimeout(timeout);
             timeout = setTimeout(() => func(...args), wait);
         };
 
-        executedFunction.cancel = function() {
+        executedFunction.cancel = function () {
             clearTimeout(timeout);
         };
 
@@ -443,7 +442,6 @@
             const viewerCSS = GM_getResourceText('VIEWER_CSS');
             GM_addStyle(viewerCSS);
         } catch (e) {
-            console.error("Viewer.js CSS yüklenemedi:", e);
         }
 
         const messagesButtonContainer = navbar.querySelector('.o-mail-DiscussSystray-class');
@@ -570,8 +568,10 @@
 
         document.addEventListener('keydown', (e) => {
             if (e.ctrlKey && e.code === 'Space') {
-                e.preventDefault();
-                openSearchField();
+                if (document.getElementById('product-search-button')) {
+                    e.preventDefault();
+                    openSearchField();
+                }
             }
         });
 
@@ -692,7 +692,7 @@
 
                 if (selectedItem && suggestionsDiv.style.display === 'block') {
                     const clickEvent = new MouseEvent('click', {
-                        bubbles: true, cancelable: true, view: window, ctrlKey: e.ctrlKey
+                        bubbles: true, cancelable: true, ctrlKey: e.ctrlKey
                     });
                     selectedItem.dispatchEvent(clickEvent);
                     return;
@@ -945,10 +945,10 @@
     }
 
     function getProductUrl(productId) {
-        // Değişiklik: Odoo 17+ ve eski sürümlerle uyumlu olması için
-        // kullanıcı tarafından sağlanan evrensel URL yapısı kullanıldı.
-        // `cids`, `menu_id`, ve `action` parametreleri kaldırıldı.
-        return `${ODOO_CONFIG.url}/web#id=${productId}&model=product.template&view_type=form`;
+        const searchParams = new URLSearchParams(window.location.search);
+        const debug = searchParams.get('debug');
+        const debugParam = debug ? `?debug=${debug}` : '';
+        return `${ODOO_CONFIG.url}/web${debugParam}#id=${productId}&model=product.template&view_type=form`;
     }
 
     function getProductImageUrl(productId, field = 'image_128') {
@@ -979,7 +979,6 @@
         showViewerLoader();
         try {
             if (!window.Viewer) {
-                console.error("Viewer.js kütüphanesi yüklenmemiş veya bulunamadı.");
                 hideViewerLoader();
                 return;
             }
@@ -1008,7 +1007,6 @@
 
             const data = await response.json();
             if (data.error || !data.result?.length) {
-                console.error("Görsel verisi alınamadı:", data.error || "Sonuç bulunamadı");
                 hideViewerLoader();
                 return;
             }
@@ -1043,7 +1041,6 @@
                 hideViewerLoader();
             }
         } catch (e) {
-            console.error("Görüntüleyici hatası:", e);
             hideViewerLoader();
         }
     }
@@ -1195,7 +1192,7 @@
                 return;
             }
 
-            if(isNewSearch) {
+            if (isNewSearch) {
                 renderSuggestions(products, query);
             } else {
                 appendSuggestions(products, query);
@@ -1211,7 +1208,7 @@
     }
 
     async function loadMoreSuggestions() {
-        if(isLoadingMore || !canLoadMore) return;
+        if (isLoadingMore || !canLoadMore) return;
 
         isLoadingMore = true;
         currentOffset += SEARCH_LIMIT;
@@ -1243,8 +1240,8 @@
         return text.replace(regex, '<strong class="text-primary">$1</strong>');
     }
 
-function buildSuggestionHTML(products, query) {
-         return products.map(p => {
+    function buildSuggestionHTML(products, query) {
+        return products.map(p => {
             const barcode = p.barcode || '';
             const name = p.name || '';
             const defaultCode = p.default_code || '';
@@ -1357,17 +1354,14 @@ function buildSuggestionHTML(products, query) {
             }
             return false;
         } catch (e) {
-            console.error("Odoo config tespiti hatası:", e);
             return false;
         }
     }
 
     async function init() {
-        // Odoo kontrolü: 'web.layout.odooscript' id'li script etiketi yoksa çalışma
         const scriptTag = document.getElementById('web.layout.odooscript');
         if (!scriptTag) {
-            // console.log("Odoo Fast Product Search: Odoo sitesi bulunamadı. Script durduruluyor.");
-            return; // Scriptin çalışmasını engelle
+            return;
         }
 
         const configDetected = await detectOdooConfig();
@@ -1375,8 +1369,7 @@ function buildSuggestionHTML(products, query) {
             await new Promise(resolve => setTimeout(resolve, 500));
             const configDetectedAgain = await detectOdooConfig();
             if (!configDetectedAgain) {
-                 console.error("Odoo config bilgileri tespit edilemedi.");
-                 return;
+                return;
             }
         }
 
